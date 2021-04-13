@@ -22,26 +22,29 @@ Aims
 - Slam3 class
 
 """
-
 import os
-from tempfile import NamedTemporaryFile
 import time
-import matplotlib.pyplot as plt
+
+from tempfile import NamedTemporaryFile
+
 import numpy as np
+import matplotlib.pyplot as plt
+
+from tqdm import tqdm
+from joblib import delayed, dump, load, Parallel
 from astropy.table import Table
-from joblib import load, dump, Parallel, delayed
 from sklearn.model_selection import train_test_split
 
-from .diagnostic import compare_labels, single_pixel_diagnostic
-from .hyperparameter import (summarize_hyperparameters_to_table,
-                             summarize_table,
-                             hyperparameter_grid_stats)
 from .mcmc import predict_label_mcmc
-from .predict import predict_labels3, predict_labels_chi2, predict_spectrum, predict_pixel
-from .standardization import standardize, standardize_ivar
+from .utils import convolve_mask, getsize, sizeof, uniform
 from .train2 import train_multi_pixels, train_single_pixel
-from .utils import convolve_mask, uniform, getsize, sizeof
-from .parallel import launch_ipcluster_dv, reset_dv, print_time_cost
+from .predict import (predict_labels3, predict_labels_chi2, predict_pixel,
+                      predict_spectrum, predict_labels3_filename)
+from .parallel import launch_ipcluster_dv, print_time_cost, reset_dv
+from .diagnostic import compare_labels, single_pixel_diagnostic
+from .hyperparameter import (hyperparameter_grid_stats,
+                             summarize_hyperparameters_to_table, summarize_table)
+from .standardization import standardize, standardize_ivar
 
 __all__ = ['Slam3']
 
@@ -529,11 +532,11 @@ class Slam3(object):
         # determine sample_weight
         assert sample_weight_scheme in ("alleven", "bool", "ivar")
 
-        if sample_weight_scheme is "alleven":
+        if sample_weight_scheme == "alleven":
             # all even (some bad pixels do disturb!)
             sample_weight = np.ones_like(self.tr_flux_scaled)
 
-        elif sample_weight_scheme is "bool":
+        elif sample_weight_scheme == "bool":
             # 0|1 scheme for training flux (recommended)
             sample_weight = self.tr_mask.astype(np.float)
             ind_all_bad = np.sum(sample_weight, axis=0) < 1.
@@ -544,7 +547,7 @@ class Slam3(object):
                     sample_weight[:, i_pix] = 1.
             self.ind_all_bad = ind_all_bad
 
-        elif sample_weight_scheme is "ivar":
+        elif sample_weight_scheme == "ivar":
             # according to ivar (may cause bias due to sampling)
             sample_weight = self.tr_ivar_scaled
 
@@ -1101,8 +1104,176 @@ class Slam3(object):
                 X0[i], self.sms, test_flux[i],
                 test_ivar=test_ivar[i], mask=mask[i],
                 flux_scaler=None, ivar_scaler=None, labels_scaler=self.tr_labels_scaler,
-                **kwargs) for i in range(n_test)
-        )
+                **kwargs) for i in tqdm(range(n_test)
+        ))
+        # X_pred = np.array(X_pred)
+
+        # 10. scale X_pred back if necessary
+        # if labels_scaler is not None:
+        #     X_pred = labels_scaler.inverse_transform(X_pred)
+
+        return r_pred
+
+    def predict_labels_multi_filename(self, X0, test_flux, test_ivar=None, mask=None,
+                             model_ivar=None, flux_eps=None, ivar_eps=1e0,
+                             flux_scaler=True, ivar_scaler=True,
+                             labels_scaler=True, n_jobs=1, verbose=False, file_names=None,
+                             **kwargs):
+        """ predict labels for a given test spectrum (multiple)
+
+        Parameters
+        ----------
+        X0 : ndarray (1 x n_dim)
+            the initial guess of predicted label
+        test_flux : ndarray (n_test, n_pix)
+            test flux array
+        test_ivar : ndarray (n_test, n_pix)
+            test ivar array
+        mask : bool ndarray (n_test, n_pix)
+            manual mask, False pixels are not evaluated for speed up
+        model_ivar: ndarray (n_pix,), default None
+            the model error in scaled space.
+            if None, 0 would be adopted.
+            usually 1/(-NMSE) could be used.
+        flux_scaler : scaler object
+            flux scaler. if False, it doesn't perform scaling
+        ivar_scaler : scaler object
+            ivar scaler. if False, it doesn't perform scaling
+        labels_scaler : scaler object
+            labels scaler. if False, it doesn't perform scaling
+        n_jobs: int
+            number of processes launched by joblib
+        verbose: int
+            verbose level
+
+        kwargs :
+            extra parameters passed to *minimize()*
+            **tol** should be specified by user according to n_pix
+
+        NOTE
+        ----
+        ** all input should be 2D array or sequential **
+
+        """
+        if "profile" in kwargs.keys():
+            if kwargs["profile"] is None:
+                kwargs.pop("profile")
+            else:
+                raise AssertionError(
+                    "@Slam: use Slam.predict_labels_ipc instead!")
+
+        test_flux, test_ivar = self.heal_the_world(
+            test_flux, test_ivar, **self.heal_kwargs)
+
+        # 0. determine n_test
+        n_test = test_flux.shape[0]
+
+        # 1. default scalers
+        if flux_scaler:
+            flux_scaler = self.tr_flux_scaler
+        else:
+            flux_scaler = None
+
+        if ivar_scaler:
+            ivar_scaler = self.tr_ivar_scaler
+        else:
+            ivar_scaler = None
+
+        if labels_scaler:
+            labels_scaler = self.tr_labels_scaler
+        else:
+            labels_scaler = None
+
+        # 2. scale test_flux
+        if flux_scaler is not None:
+            test_flux = flux_scaler.transform(test_flux)
+
+        # 3. set default mask, test_ivar
+        # mask must be set here!
+        if mask is None:
+            # no mask is set
+            mask = np.ones_like(test_flux, dtype=np.bool)
+        elif mask.ndim == 1 and len(mask) == test_flux.shape[1]:
+            # if only one mask is specified
+            mask = np.array([mask for _ in range(n_test)])
+        mask &= test_ivar > 0
+
+        # 4. scale test_ivar
+        # test_ivar must be set here!
+        if test_ivar is None:
+            # test_ivar=None, directly set test_ivar
+            test_ivar = np.ones_like(test_flux, dtype=np.float)
+        # test_ivar is not None
+        elif ivar_scaler is not None:
+            # do scaling for test_ivar
+            test_ivar = ivar_scaler.transform(test_ivar)
+            # else:
+            # don't do scaling for test_ivar
+
+        # 5. update test_ivar : negative ivar set to 0
+        # test_ivar = np.where((test_ivar >= 0.) * (np.isfinite(test_ivar)),
+        #                      test_ivar, np.zeros_like(test_ivar))
+        test_ivar = np.where(
+            np.logical_and(test_ivar >= ivar_eps, np.isfinite(test_ivar)),
+            test_ivar, np.zeros_like(test_ivar))
+
+        # 5'. take into account model error
+        if model_ivar is None:
+            # using model error
+            mse = -self.training_nmse(1, False)
+            model_ivar = mse**-2.
+        # fix model_ivar
+        model_ivar = np.where(
+            np.logical_and(model_ivar > ivar_eps, np.isfinite(model_ivar)),
+            model_ivar, 0.)
+        # calculate total_ivar
+        test_ivar = np.where(
+            np.logical_or(model_ivar < ivar_eps, test_ivar < ivar_eps), 0.,
+            test_ivar * model_ivar / (test_ivar + model_ivar))
+        # fix total_ivar
+        test_ivar = np.where(np.isfinite(test_ivar), test_ivar, 0.)
+
+        # 6. update mask for low ivar pixels
+        # test_ivar_threshold = np.array(
+        #     [np.median(_[_ > 0]) * 0.05 for _ in test_ivar]).reshape(-1, 1)
+        # mask = np.where(test_ivar < test_ivar_threshold,
+        #                 np.zeros_like(mask, dtype=np.bool), mask)
+        #
+        # This is NON-PHYSICAL !
+        # Since the test_ivar is SCALED, could not cut 0.05 median!
+        if flux_eps is not None:
+            mask = np.logical_and(mask, test_flux > flux_eps)
+        else:
+            mask = np.logical_and(mask, test_ivar > 0.)
+        print("@SLAM: The spectra with fewest pixels unmasked is "
+              "[{}/{}]".format(np.min(np.sum(mask, axis=1)), self.n_pix))
+
+        # 7. test_ivar normalization
+        # test_ivar /= np.sum(test_ivar, axis=1).reshape(-1, 1)
+        #test_ivar /= np.percentile(test_ivar, 90, axis=1).reshape(-1, 1)
+
+        assert test_flux.shape == test_ivar.shape
+        assert test_flux.shape == mask.shape
+
+        # 8. if you want different initial values ...
+        if X0.ndim == 1:
+            # only one initial guess is set
+            X0 = X0.reshape(1, -1).repeat(n_test, axis=0)
+        elif X0.shape[0] == 1:
+            # only one initial guess is set, but 2D shape
+            X0 = X0.reshape(1, -1).repeat(n_test, axis=0)
+
+        if labels_scaler is not None:
+            X0 = labels_scaler.transform(X0)
+
+        # 9. loop predictions
+        r_pred = Parallel(n_jobs=n_jobs, verbose=verbose)(
+            delayed(predict_labels3_filename)(
+                X0[i], self.sms, test_flux[i],
+                test_ivar=test_ivar[i], mask=mask[i],
+                flux_scaler=None, ivar_scaler=None, labels_scaler=self.tr_labels_scaler, file_name=file_names[i],
+                **kwargs) for i in tqdm(range(n_test)
+        ))
         # X_pred = np.array(X_pred)
 
         # 10. scale X_pred back if necessary
@@ -1414,8 +1585,8 @@ class Slam3(object):
         n_pred = X_pred.shape[0]
         flux_pred = Parallel(n_jobs=n_jobs, verbose=verbose)(
             delayed(predict_spectrum)(self.sms, X_pred[i])
-            for i in range(n_pred)
-        )
+            for i in tqdm(range(n_pred)
+        ))
         flux_pred = np.array([_[0] for _ in flux_pred])
 
         if flux_scaler:
@@ -1443,7 +1614,7 @@ class Slam3(object):
 
         Returns
         -------
-        pred_flux: ndarray (n_test, n_pix)
+        pred_flut: ndarray (n_test, n_pix)
             predicted spectra
 
         """
@@ -1479,9 +1650,9 @@ class Slam3(object):
                                 diag_dim=(0, 1),
                                 labels_scaler="default",
                                 flux_scaler="default"):
-        if labels_scaler is "default":
+        if labels_scaler == "default":
             labels_scaler = self.tr_labels_scaler
-        if flux_scaler is "default":
+        if flux_scaler == "default":
             flux_scaler = self.tr_flux_scaler
 
         return single_pixel_diagnostic(self.sms,

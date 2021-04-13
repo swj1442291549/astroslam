@@ -26,11 +26,13 @@ Aims
 import numpy as np
 from scipy.optimize import minimize
 from joblib import Parallel, delayed
+from pathlib import Path
 
 # from .mcmc import lnlike_gaussian
 from .costfunction import chi2_simple_1d
 from scipy.optimize import leastsq, least_squares
 from .postprocessing import do_post
+import pickle
 
 
 def predict_pixel(svr, X_, mask=True):
@@ -212,6 +214,81 @@ def predict_labels3(X0, svrs, test_flux, test_ivar=None, mask=None,
 
     # verbose
     print("@SLAM3: nfev={}, status={}, pstd={}".format(pp_r["nfev"], pp_r["status"], pp_r["pstd"]))
+
+    # print ("Xshape in predict_labels: ", X0.shape)
+    # print costfun_for_label(X0, svrs, test_flux, test_ivar, mask)
+    # X_pred, ier = leastsq(costfun_for_label, X0,
+    #                       args=(svrs, test_flux, test_ivar, mask), **kwargs)
+    # do minimization using Nelder-Mead method [tol=1.e-8 set by user!]
+    # X_pred = minimize(costfun_for_label, X0,
+    #                   args=(svrs, test_flux, test_ivar, mask),
+    #                   method='Nelder-Mead', **kwargs)
+    # nll = lambda *args: -lnlike_gaussian(*args)
+    # X_pred = minimize(nll, X0,
+    #                   args=(svrs, test_flux, test_ivar, mask),
+    #                   method='Nelder-Mead', **kwargs)
+    # print('@Cham: X_init=', X0, 'X_final=', X_pred, 'ier', ier)
+    # , 'nit=', X_pred['nit']
+
+    # scale X_pred back if necessary
+    # if labels_scaler is not None:
+    #     X_pred = labels_scaler.inverse_transform(
+    #         X_pred.reshape(1, -1)).flatten()
+    # else:
+    #     X_pred = X_pred.flatten()
+
+    return pp_r
+
+def predict_labels3_filename(X0, svrs, test_flux, test_ivar=None, mask=None,
+                    flux_scaler=None, ivar_scaler=None, labels_scaler=None, file_name=None,
+                    **kwargs):
+    """ predict scaled labels for test_flux
+
+    Parameters
+    ----------
+    X0 : ndarray (n_test, n_dim)
+        initial guess
+    svrs: list
+        a list of svr objects
+    test_flux: ndarray
+        test flux
+    test_ivar: ndarray
+        test ivar
+    mask: None | bool array
+        predict the pixels where mask==True
+    flux_scaler: scaler object
+        if not None, scale test_flux before predictions
+    labels_scaler: scaler object
+        if not None, scale predicted labels back to normal scale
+
+    Returns
+    -------
+    X_pred: ndarray
+        predicted lables (scaled)
+
+    """
+    # assert X0 is 2D array
+    # assert X0.ndim == 2
+
+    if not Path(file_name).is_file():
+        # scale test_flux if necessary
+        if flux_scaler is not None:
+            test_flux = flux_scaler.transform(test_flux.reshape(1, -1)).flatten()
+
+        # scale test_ivar if necessary
+        if ivar_scaler is not None:
+            test_ivar = ivar_scaler.transform(test_ivar.reshape(1, -1)).flatten()
+
+        ls_r = least_squares(costfun_for_label, X0, method="trf", loss="soft_l1",
+                            args=(svrs, test_flux, test_ivar, mask), **kwargs)
+        pp_r = do_post(ls_r, labels_scaler)
+
+        pickle.dump(pp_r, open(file_name, "wb"))
+    else:
+        pp_r = pickle.load(open(file_name, "rb"))
+
+    # verbose
+    # print("@SLAM3: nfev={}, status={}, pstd={}".format(pp_r["nfev"], pp_r["status"], pp_r["pstd"]))
 
     # print ("Xshape in predict_labels: ", X0.shape)
     # print costfun_for_label(X0, svrs, test_flux, test_ivar, mask)

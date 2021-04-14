@@ -24,6 +24,7 @@ Aims
 """
 import os
 import time
+from pathlib import Path
 
 from tempfile import NamedTemporaryFile
 
@@ -1266,13 +1267,18 @@ class Slam3(object):
         if labels_scaler is not None:
             X0 = labels_scaler.transform(X0)
 
+        index_todo = list()
+        for i in range(n_test):
+            if not Path(file_names[i]).is_file():
+                index_todo.append(i)
+
         # 9. loop predictions
         r_pred = Parallel(n_jobs=n_jobs, verbose=verbose)(
             delayed(predict_labels3_filename)(
                 X0[i], self.sms, test_flux[i],
                 test_ivar=test_ivar[i], mask=mask[i],
                 flux_scaler=None, ivar_scaler=None, labels_scaler=self.tr_labels_scaler, file_name=file_names[i],
-                **kwargs) for i in tqdm(range(n_test)
+                **kwargs) for i in tqdm(index_todo
         ))
         # X_pred = np.array(X_pred)
 

@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name='astroslam',
-    version="1.2020.1202.0",
+    version="1.2022.1228.1",
     author='Bo Zhang',
     author_email='bozhang@nao.cas.cn',
     description=('A forward model using SVR to estimate stellar parameters'
@@ -19,13 +19,24 @@ setuptools.setup(
                  "Intended Audience :: Science/Research",
                  "License :: OSI Approved :: MIT License",
                  "Operating System :: OS Independent",
-                 "Programming Language :: Python :: 3.7",
+                 "Programming Language :: Python :: 3.9",
                  "Topic :: Scientific/Engineering :: Physics",
                  "Topic :: Scientific/Engineering :: Astronomy"],
     package_dir={'slam': 'slam',
                  'extern': 'slam/extern'},
     package_data={'slam': ['data/*.csv']},
     # include_package_data=True,
-    requires=['numpy', 'scipy', 'matplotlib', 'astropy', 'sklearn', 'joblib',
-              'pandas', 'emcee', 'lmfit', 'ipyparallel']
+    install_requires=[
+        'numpy',
+        'scipy',
+        'matplotlib',
+        'astropy',
+        'laspec',
+        'scikit-learn==1.2.0',
+        'joblib==1.2.0',
+        'pandas',
+        'emcee',
+        'lmfit',
+        'ipyparallel'
+    ]
 )

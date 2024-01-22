@@ -490,7 +490,7 @@ class Slam3(object):
 
     def train_pixels(self, profile=None, targets="all", temp_dir=None,
                      sample_weight_scheme="bool",
-                     model="nn", method="simple", param_grid=None, cv=8,
+                     model="svr", method="simple", param_grid=None, cv=8,
                      scoring="neg_mean_squared_error",
                      n_jobs=10, verbose=10, backend="multiprocessing", **kwargs):
         """ train pixels usig SVR
@@ -1581,10 +1581,10 @@ class Slam3(object):
 
         """
         # convert 1d label to 2d label
+        X_pred = np.array(X_pred)
         if X_pred.ndim == 1:
             X_pred = X_pred.reshape(1, -1)
-
-        #
+        # transform
         if labels_scaler:
             X_pred = self.tr_labels_scaler.transform(X_pred)
 
@@ -1598,6 +1598,8 @@ class Slam3(object):
         if flux_scaler:
             return self.tr_flux_scaler.inverse_transform(flux_pred)
 
+        if n_pred == 1:
+            return flux_pred.flatten()
         return flux_pred
 
     def replicate_training_flux(self, n_jobs=-1, verbose=50):

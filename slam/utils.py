@@ -23,7 +23,8 @@ Aims
 
 """
 import sys
-from collections import OrderedDict, Set, Mapping, deque
+from collections import OrderedDict, deque
+from collections.abc import Set, Mapping
 from numbers import Number
 
 import numpy as np

@@ -60,7 +60,7 @@ def predict_pixel(svr, X_, mask=True):
     if mask:
         y = svr.predict(X_)  # predicted y is a flatten array
     else:
-        y = np.nan
+        y = np.array([np.nan])
 
     return y
 
@@ -94,7 +94,7 @@ def predict_spectrum(svrs, X_, mask=None, scaler=None):
 
     # default is to use all pixels
     if mask is None:
-        mask = np.ones((len(svrs),), dtype=np.bool)
+        mask = np.ones((len(svrs),), dtype=bool)
 
     # make predictions
     # print('number of true mask: ', np.sum(mask))
@@ -345,7 +345,7 @@ def costfun_for_label(X_, svrs, test_flux, test_ivar, mask):
         # mask = np.logical_and(mask, test_ivar > 0.01 * np.median(test_ivar))
 
     # do prediction
-    pred_flux = predict_spectrum(svrs, X_, mask).astype(np.float)
+    pred_flux = predict_spectrum(svrs, X_, mask).astype(float)
     # the pred_flux contains nan for mask=False pixels
 
     # print ("test_flux", test_flux, test_flux.shape)

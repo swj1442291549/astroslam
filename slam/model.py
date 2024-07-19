@@ -90,7 +90,7 @@ class SlamModel(object):
         self.model = model
         self.method = method
         self.param_grid = param_grid
-        self.cv = np.int(cv)
+        self.cv = int(cv)
         self.scoring = scoring
         self.score_ = 0
 

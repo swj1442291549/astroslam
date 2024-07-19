@@ -539,7 +539,7 @@ class Slam3(object):
 
         elif sample_weight_scheme == "bool":
             # 0|1 scheme for training flux (recommended)
-            sample_weight = self.tr_mask.astype(np.float)
+            sample_weight = self.tr_mask.astype(float)
             ind_all_bad = np.sum(sample_weight, axis=0) < 1.
             for i_pix in np.arange(sample_weight.shape[1]):
                 if ind_all_bad[i_pix]:

@@ -725,7 +725,7 @@ class Slam3(object):
 
         # test_ivar default
         if test_ivar is None:
-            test_ivar = np.ones_like(test_flux, dtype=np.float)
+            test_ivar = np.ones_like(test_flux, dtype=float)
 
         # test_ivar normalization --> unnecessary
         #test_ivar /= np.nansum(test_ivar[mask])
@@ -1035,7 +1035,7 @@ class Slam3(object):
         # test_ivar must be set here!
         if test_ivar is None:
             # test_ivar=None, directly set test_ivar
-            test_ivar = np.ones_like(test_flux, dtype=np.float)
+            test_ivar = np.ones_like(test_flux, dtype=float)
         # test_ivar is not None
         elif ivar_scaler is not None:
             # do scaling for test_ivar
@@ -1203,7 +1203,7 @@ class Slam3(object):
         # test_ivar must be set here!
         if test_ivar is None:
             # test_ivar=None, directly set test_ivar
-            test_ivar = np.ones_like(test_flux, dtype=np.float)
+            test_ivar = np.ones_like(test_flux, dtype=float)
         # test_ivar is not None
         elif ivar_scaler is not None:
             # do scaling for test_ivar
@@ -1371,7 +1371,7 @@ class Slam3(object):
         # test_ivar must be set here!
         if test_ivar is None:
             # test_ivar=None, directly set test_ivar
-            test_ivar = np.ones_like(test_flux, dtype=np.float)
+            test_ivar = np.ones_like(test_flux, dtype=float)
         # test_ivar is not None
         elif ivar_scaler is not None:
             # do scaling for test_ivar
@@ -1753,7 +1753,7 @@ class Slam3(object):
                                (self.tr_flux > 0.) *
                                np.isfinite(self.tr_ivar) *
                                np.isfinite(self.tr_flux))
-            sample_weight = ind_good_pixels.astype(np.float)
+            sample_weight = ind_good_pixels.astype(float)
             r = Parallel(n_jobs=n_jobs, verbose=verbose)(delayed(nmse)(
                 self.sms[i], self.tr_labels_scaled, self.tr_flux_scaled[:, i],
                 sample_weight[:, i]) for i in range(self.n_pix))
